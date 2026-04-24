@@ -3,15 +3,13 @@
 """
 广东工业大学研究生招生网监控脚本
 监控网址: https://yzw.gdut.edu.cn/sszs.htm
-功能: 监控页面更新，抓取文章详情，通过AI总结后发送QQ邮件通知
+功能: 监控页面更新，结合天气和AI问好，发送邮件通知
 """
 
 import hashlib
 import json
 import os
-import re
 import smtplib
-import time
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -24,19 +22,25 @@ from bs4 import BeautifulSoup
 
 # 监控配置
 MONITOR_URL = "https://yzw.gdut.edu.cn/sszs.htm"
-DATA_FILE = "monitor_data.json"  # 存储历史数据的文件
+DATA_FILE = "monitor_data.json"
 
-# QQ邮箱配置（优先从环境变量读取，适配 GitHub Actions）
+# QQ邮箱配置（优先从环境变量读取）
 SMTP_SERVER = "smtp.qq.com"
 SMTP_PORT = 465
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "REDACTED_SENDER_EMAIL")
-SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD", "REDACTED_QQ_AUTH_CODE")
-RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL", "REDACTED_SENDER_EMAIL")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "")
+SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD", "")
+RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL", "")
 
 # AI 配置（通义千问 Qwen）
-QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "REDACTED_QWEN_API_KEY")
-QWEN_MODEL = "tongyi-xiaomi-analysis-pro"
+QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "")
+QWEN_MODEL = "qwen-turbo"
 QWEN_API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+
+# 天气配置（和风天气 - 免费版）
+WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY", "")
+WEATHER_API_URL = "https://devapi.qweather.com/v7/weather/now"
+# 广州的城市代码
+GUANGZHOU_LOCATION = "101280101"
 
 # ==================== 日志功能 ====================
 
@@ -45,7 +49,6 @@ def log_message(message):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_line = f"[{timestamp}] {message}"
     print(log_line)
-    # 同时写入日志文件
     with open("monitor.log", "a", encoding="utf-8") as f:
         f.write(log_line + "\n")
 
@@ -68,6 +71,107 @@ def save_data(data):
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
         log_message(f"保存数据文件失败: {e}")
+
+# ==================== 天气获取 ====================
+
+def get_weather():
+    """获取广州当前天气"""
+    if not WEATHER_API_KEY:
+        log_message("未配置天气API Key，跳过天气获取")
+        return None
+    
+    try:
+        params = {
+            "location": GUANGZHOU_LOCATION,
+            "key": WEATHER_API_KEY
+        }
+        response = requests.get(WEATHER_API_URL, params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("code") == "200":
+                now = data.get("now", {})
+                weather_info = {
+                    "temp": now.get("temp", "未知"),
+                    "feels_like": now.get("feelsLike", "未知"),
+                    "weather": now.get("text", "未知"),
+                    "wind": now.get("windDir", "未知"),
+                    "humidity": now.get("humidity", "未知")
+                }
+                log_message(f"获取天气成功: {weather_info['weather']}, {weather_info['temp']}°C")
+                return weather_info
+            else:
+                log_message(f"天气API返回错误: {data}")
+        else:
+            log_message(f"天气API请求失败，状态码: {response.status_code}")
+    except Exception as e:
+        log_message(f"获取天气异常: {e}")
+    return None
+
+# ==================== AI 问好生成 ====================
+
+def generate_greeting(weather_info, hour):
+    """根据时间和天气生成AI问好"""
+    if not QWEN_API_KEY:
+        # 无AI时简单生成
+        if 5 <= hour < 12:
+            period = "早上"
+        elif 12 <= hour < 14:
+            period = "中午"
+        elif 14 <= hour < 18:
+            period = "下午"
+        else:
+            period = "晚上"
+        
+        temp = weather_info.get("temp", "未知") if weather_info else "未知"
+        return f"{period}好！现在温度{temp}度，祝你今天愉快！"
+    
+    # 构建提示词
+    if 5 <= hour < 12:
+        period = "早上"
+    elif 12 <= hour < 14:
+        period = "中午"
+    elif 14 <= hour < 18:
+        period = "下午"
+    else:
+        period = "晚上"
+    
+    weather_desc = ""
+    if weather_info:
+        weather_desc = f"当前天气: {weather_info.get('weather', '未知')}, 温度{weather_info.get('temp', '未知')}°C, 体感温度{weather_info.get('feels_like', '未知')}°C, 湿度{weather_info.get('humidity', '未知')}%"
+    else:
+        weather_desc = "未获取到天气信息"
+    
+    prompt = f"现在是{period}，{weather_desc}。请用温暖亲切的语气写一句{period}问候语，包含温度和穿衣建议（冷了提醒多穿，热了提醒别中暑），控制在50字以内。只输出问候语本身，不要加任何前缀。"
+    
+    headers = {
+        "Authorization": f"Bearer {QWEN_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": QWEN_MODEL,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 100
+    }
+    
+    try:
+        log_message("正在生成AI问候语...")
+        response = requests.post(QWEN_API_URL, headers=headers, json=payload, timeout=30)
+        if response.status_code == 200:
+            result = response.json()
+            greeting = result["choices"][0]["message"]["content"].strip()
+            log_message(f"AI问候语生成完成: {greeting[:30]}...")
+            return greeting
+        else:
+            log_message(f"AI问候语生成失败: {response.status_code}")
+    except Exception as e:
+        log_message(f"AI问候语生成异常: {e}")
+    
+    # 失败时返回简单问候
+    temp = weather_info.get("temp", "未知") if weather_info else "未知"
+    return f"{period}好！现在温度{temp}度，祝你今天愉快！"
 
 # ==================== 网页抓取 ====================
 
@@ -97,11 +201,9 @@ def parse_articles(html):
     soup = BeautifulSoup(html, 'html.parser')
     articles = []
 
-    # 查找文章列表 - 根据页面结构，文章在 class='no' 的 <li> 中
     li_items = soup.find_all('li', class_='no')
     for li in li_items:
         try:
-            # 获取链接
             a_tag = li.find('a', href=True)
             if not a_tag:
                 continue
@@ -109,7 +211,6 @@ def parse_articles(html):
             title = a_tag.get('title', '').strip()
             href = a_tag.get('href', '').strip()
 
-            # 获取日期
             date_div = li.find('div', class_='tl-data')
             date_str = ""
             if date_div:
@@ -118,7 +219,6 @@ def parse_articles(html):
                 if month_day and year:
                     date_str = f"{year.text}-{month_day.text}"
 
-            # 获取摘要
             summary = ""
             info_div = li.find('div', class_='tl-info2')
             if info_div:
@@ -126,7 +226,6 @@ def parse_articles(html):
                 if p_tag:
                     summary = p_tag.text.strip()
 
-            # 构建完整URL
             full_url = urljoin(MONITOR_URL, href)
 
             articles.append({
@@ -135,7 +234,7 @@ def parse_articles(html):
                 "date": date_str,
                 "summary": summary[:200] + "..." if len(summary) > 200 else summary
             })
-        except Exception as e:
+        except Exception:
             continue
 
     return articles
@@ -145,7 +244,7 @@ def calculate_hash(content):
     return hashlib.md5(content.encode('utf-8')).hexdigest()
 
 def get_first_article(articles):
-    """获取页面排列在最上面的文章（列表第一篇）"""
+    """获取页面排列在最上面的文章"""
     if not articles:
         return None
     return articles[0]
@@ -157,7 +256,6 @@ def fetch_article_html(url):
         return None
     try:
         soup = BeautifulSoup(html, 'html.parser')
-        # 尝试找正文区域
         content_div = soup.find('div', class_='content') or soup.find('div', class_='v_news_content') or soup.find('div', id='content') or soup.find('article')
         if content_div:
             text = content_div.get_text(separator='\n', strip=True)
@@ -180,7 +278,6 @@ def ai_summarize(text):
     if not text or not text.strip():
         return "（文章内容为空，无法总结）"
     
-    # 限制文本长度，避免超出API限制
     max_length = 8000
     if len(text) > max_length:
         text = text[:max_length] + "..."
@@ -213,7 +310,7 @@ def ai_summarize(text):
             log_message("AI总结完成")
             return summary
         else:
-            log_message(f"AI API请求失败，状态码: {response.status_code}, 响应: {response.text}")
+            log_message(f"AI API请求失败，状态码: {response.status_code}")
             return f"（AI总结失败，原文如下）\n\n{text}"
     except Exception as e:
         log_message(f"AI总结异常: {e}")
@@ -222,7 +319,7 @@ def ai_summarize(text):
 # ==================== 邮件发送 ====================
 
 def send_email(subject, body_text):
-    """发送QQ邮件通知（纯文本）"""
+    """发送QQ邮件通知"""
     try:
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
@@ -231,7 +328,6 @@ def send_email(subject, body_text):
         
         msg.attach(MIMEText(body_text, 'plain', 'utf-8'))
         
-        # 连接SMTP服务器并发送（QQ邮箱使用SSL）
         server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
         server.send_message(msg)
@@ -247,8 +343,18 @@ def send_email(subject, body_text):
 # ==================== 主监控逻辑 ====================
 
 def check_updates():
-    """检查页面更新"""
+    """检查页面更新并发送邮件"""
     log_message("开始检查页面更新...")
+    
+    # 获取当前时间
+    now = datetime.now()
+    current_hour = now.hour
+    
+    # 获取天气
+    weather_info = get_weather()
+    
+    # 生成AI问候语
+    greeting = generate_greeting(weather_info, current_hour)
     
     # 加载历史数据
     data = load_data()
@@ -257,12 +363,17 @@ def check_updates():
     html = fetch_page(MONITOR_URL)
     if not html:
         log_message("获取页面失败，跳过本次检查")
+        # 即使页面获取失败，也发送问候邮件
+        body = f"{greeting}\n\n{'='*40}\n\n（招生网页面获取失败，请稍后查看）"
+        send_email("【招生网监控】每日问候", body)
         return
     
     # 解析文章列表
     current_articles = parse_articles(html)
     if not current_articles:
         log_message("未解析到文章列表")
+        body = f"{greeting}\n\n{'='*40}\n\n（未能解析到文章列表）"
+        send_email("【招生网监控】每日问候", body)
         return
     
     log_message(f"成功解析到 {len(current_articles)} 篇文章")
@@ -272,27 +383,41 @@ def check_updates():
     current_hash = calculate_hash(articles_str)
     
     # 检查是否有更新
+    has_update = False
     if data["last_hash"] == "":
         log_message("首次运行，初始化数据...")
     elif data["last_hash"] != current_hash:
         log_message("检测到页面更新！")
+        has_update = True
     else:
         log_message("页面未更新")
     
-    # 每次运行都发送当前最上方的文章（不管有没有更新）
+    # 获取首条文章
     first_article = get_first_article(current_articles)
     
     if first_article:
         log_message(f"当前首条文章: {first_article['title']} ({first_article['date']})")
+        
         # 抓取文章详情页正文
         article_text = fetch_article_html(first_article['url'])
+        
         # 调用AI总结
         if article_text:
             ai_summary = ai_summarize(article_text)
         else:
             ai_summary = "（未能提取正文内容）"
+        
         # 组装邮件正文
-        body = f"标题: {first_article['title']}\n"
+        body = f"{greeting}\n\n"
+        body += f"{'='*40}\n"
+        
+        if has_update:
+            body += "🎉 【页面有更新】\n"
+        else:
+            body += "📋 【当前最新文章】\n"
+        
+        body += f"{'='*40}\n"
+        body += f"标题: {first_article['title']}\n"
         body += f"日期: {first_article['date']}\n"
         body += f"链接: {first_article['url']}\n"
         body += f"{'='*40}\n"
@@ -306,15 +431,18 @@ def check_updates():
             body += article_text
         else:
             body += "（未能提取正文内容）"
+        
         subject = f"【招生网】{first_article['title'][:30]}..."
         send_email(subject, body)
     else:
         log_message("未获取到首条文章")
+        body = f"{greeting}\n\n{'='*40}\n\n（未获取到文章信息）"
+        send_email("【招生网监控】每日问候", body)
     
     # 保存数据
     data["last_hash"] = current_hash
     data["articles"] = current_articles
-    data["last_check"] = datetime.now().isoformat()
+    data["last_check"] = now.isoformat()
     save_data(data)
 
 def main():
@@ -322,20 +450,15 @@ def main():
     log_message("=" * 50)
     log_message("广东工业大学研究生招生网监控脚本启动")
     log_message(f"监控页面: {MONITOR_URL}")
-    log_message("运行模式: 单次执行（由 GitHub Actions cron 定时触发）")
+    log_message("运行模式: 每日8:00/12:00/17:00定时执行")
     log_message("=" * 50)
     
     # 检查配置
-    if not SENDER_EMAIL or not SENDER_PASSWORD or SENDER_EMAIL == "your_qq@qq.com":
-        log_message("⚠️ 警告: 请先在配置区域填写正确的QQ邮箱和授权码！")
-        log_message("获取QQ邮箱授权码的方法:")
-        log_message("1. 登录QQ邮箱网页版")
-        log_message("2. 点击设置 -> 账户")
-        log_message("3. 找到'POP3/IMAP/SMTP/Exchange/CardDAV/CalDAV服务'")
-        log_message("4. 开启SMTP服务，获取授权码")
+    if not SENDER_EMAIL or not SENDER_PASSWORD:
+        log_message("⚠️ 警告: 邮箱配置不完整！")
         return
     
-    # 执行一次检查（GitHub Actions 每次由 cron 触发，不需要循环）
+    # 执行检查
     check_updates()
 
 if __name__ == "__main__":
