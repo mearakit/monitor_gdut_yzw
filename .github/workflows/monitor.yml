@@ -32,4 +32,9 @@ jobs:
           RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
           QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
         run: |
+          echo "Debug: Checking env variables..."
+          echo "SENDER_EMAIL is set: ${{ secrets.SENDER_EMAIL != '' }}"
+          echo "SENDER_PASSWORD is set: ${{ secrets.SENDER_PASSWORD != '' }}"
+          echo "RECEIVER_EMAIL is set: ${{ secrets.RECEIVER_EMAIL != '' }}"
+          echo "QWEN_API_KEY is set: ${{ secrets.QWEN_API_KEY != '' }}"
           python monitor_gdut_yzw.py
