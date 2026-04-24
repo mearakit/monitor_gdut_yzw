@@ -23,24 +23,37 @@ from bs4 import BeautifulSoup
 # 监控配置
 MONITOR_URL = "https://yzw.gdut.edu.cn/sszs.htm"
 DATA_FILE = "monitor_data.json"
-
+"""
+Name:           SENDER_EMAIL                                                                                                                                                                     █  
+     Secret:         REDACTED_SENDER_EMAIL                                                                                                                           Context                              █  
+                                                                                                                                                                 46,528 tokens                        █  
+     Name:           SENDER_PASSWORD                                                                                                                             18% used                             █  
+     Secret:         REDACTED_QQ_AUTH_CODE                                                                                                                            $0.00 spent                          █  
+                                                                                                                                                                                                      █  
+     Name:           RECEIVER_EMAIL                                                                                                                              LSP                                  █  
+     Secret:         REDACTED_SENDER_EMAIL                                                                                                                           LSPs will activate as files are read █  
+                                                                                                                                                                                                      █  
+     Name:           QWEN_API_KEY                                                                                                                                ▼ Todo                               █  
+     Secret:         REDACTED_QWEN_API_KEY   
+      
+      """
 # QQ邮箱配置（优先从环境变量读取）
 SMTP_SERVER = "smtp.qq.com"
 SMTP_PORT = 465
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "")
-SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD", "")
-RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL", "")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "REDACTED_SENDER_EMAIL")
+SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD", "REDACTED_QQ_AUTH_CODE   ")
+RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL", "REDACTED_SENDER_EMAIL")
 
-# AI 配置（通义千问 Qwen）
-QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "")
+# AI 配置（通义千问 Qwen）REDACTED_QWEN_API_KEY
+QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "REDACTED_QWEN_API_KEY")
 QWEN_MODEL = "qwen-turbo"
 QWEN_API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 
-# 天气配置（和风天气 - 免费版）
+# 天气配置（高德地图天气 API）
 WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY", "")
-WEATHER_API_URL = "https://devapi.qweather.com/v7/weather/now"
-# 广州的城市代码
-GUANGZHOU_LOCATION = "101280101"
+WEATHER_API_URL = "https://restapi.amap.com/v3/weather/weatherInfo"
+# 广州的 adcode
+GUANGZHOU_ADCODE = "440100"
 
 # ==================== 日志功能 ====================
 
@@ -75,27 +88,29 @@ def save_data(data):
 # ==================== 天气获取 ====================
 
 def get_weather():
-    """获取广州当前天气"""
+    """获取广州当前天气（高德地图API）"""
     if not WEATHER_API_KEY:
         log_message("未配置天气API Key，跳过天气获取")
         return None
-    
+
     try:
         params = {
-            "location": GUANGZHOU_LOCATION,
-            "key": WEATHER_API_KEY
+            "key": WEATHER_API_KEY,
+            "city": GUANGZHOU_ADCODE,
+            "extensions": "base",
+            "output": "JSON"
         }
         response = requests.get(WEATHER_API_URL, params=params, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            if data.get("code") == "200":
-                now = data.get("now", {})
+            if data.get("status") == "1" and data.get("lives"):
+                live = data["lives"][0]
                 weather_info = {
-                    "temp": now.get("temp", "未知"),
-                    "feels_like": now.get("feelsLike", "未知"),
-                    "weather": now.get("text", "未知"),
-                    "wind": now.get("windDir", "未知"),
-                    "humidity": now.get("humidity", "未知")
+                    "temp": live.get("temperature", "未知"),
+                    "weather": live.get("weather", "未知"),
+                    "wind": live.get("winddirection", "未知") + live.get("windpower", ""),
+                    "humidity": live.get("humidity", "未知"),
+                    "city": live.get("city", "广州")
                 }
                 log_message(f"获取天气成功: {weather_info['weather']}, {weather_info['temp']}°C")
                 return weather_info
@@ -137,7 +152,7 @@ def generate_greeting(weather_info, hour):
     
     weather_desc = ""
     if weather_info:
-        weather_desc = f"当前天气: {weather_info.get('weather', '未知')}, 温度{weather_info.get('temp', '未知')}°C, 体感温度{weather_info.get('feels_like', '未知')}°C, 湿度{weather_info.get('humidity', '未知')}%"
+        weather_desc = f"当前天气: {weather_info.get('weather', '未知')}, 温度{weather_info.get('temp', '未知')}°C, 湿度{weather_info.get('humidity', '未知')}%, 风向风力: {weather_info.get('wind', '未知')}"
     else:
         weather_desc = "未获取到天气信息"
     
