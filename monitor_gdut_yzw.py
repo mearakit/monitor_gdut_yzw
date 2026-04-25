@@ -52,7 +52,7 @@ QWEN_API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completio
 # 天气配置（高德地图天气 API）
 WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY", "REDACTED_WEATHER_API_KEY_2")
 WEATHER_API_URL = "https://restapi.amap.com/v3/weather/weatherInfo"
-# 广州的 adcode
+# 龙子湖区的 adcode
 GUANGZHOU_ADCODE = "340302"
 
 # ==================== 日志功能 ====================
@@ -100,25 +100,34 @@ def get_weather():
             "extensions": "base",
             "output": "JSON"
         }
-        log_message(f"正在请求天气API，Key前4位: {WEATHER_API_KEY[:4]}...")
+        log_message(f"正在请求高德天气API...")
         response = requests.get(WEATHER_API_URL, params=params, timeout=10)
         log_message(f"天气API响应状态码: {response.status_code}")
+
         if response.status_code == 200:
             data = response.json()
-            log_message(f"天气API返回数据: {json.dumps(data, ensure_ascii=False)}")
-            if data.get("status") == "1" and data.get("lives"):
-                live = data["lives"][0]
-                weather_info = {
-                    "temp": live.get("temperature", "未知"),
-                    "weather": live.get("weather", "未知"),
-                    "wind": live.get("winddirection", "未知") + live.get("windpower", ""),
-                    "humidity": live.get("humidity", "未知"),
-                    "city": live.get("city", "广州")
-                }
-                log_message(f"获取天气成功: {weather_info['weather']}, {weather_info['temp']}°C")
-                return weather_info
+            log_message(f"天气API返回: {json.dumps(data, ensure_ascii=False)}")
+
+            # 高德API status 为 "1" 表示成功
+            if str(data.get("status")) == "1":
+                lives = data.get("lives", [])
+                if lives:
+                    live = lives[0]
+                    weather_info = {
+                        "temp": live.get("temperature", "未知"),
+                        "weather": live.get("weather", "未知"),
+                        "winddirection": live.get("winddirection", "未知"),
+                        "windpower": live.get("windpower", ""),
+                        "humidity": live.get("humidity", "未知"),
+                        "city": live.get("city", "广州"),
+                        "reporttime": live.get("reporttime", "")
+                    }
+                    log_message(f"获取天气成功: {weather_info['weather']}, {weather_info['temp']}°C")
+                    return weather_info
+                else:
+                    log_message("天气API返回成功但没有lives数据")
             else:
-                log_message(f"天气API返回错误: status={data.get('status')}, info={data.get('info', '未知错误')}")
+                log_message(f"天气API返回错误: status={data.get('status')}, info={data.get('info', '未知错误')}, infocode={data.get('infocode', '无')}")
         else:
             log_message(f"天气API请求失败，状态码: {response.status_code}")
     except Exception as e:
