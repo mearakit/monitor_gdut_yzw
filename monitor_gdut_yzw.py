@@ -50,10 +50,10 @@ QWEN_MODEL = "qwen-turbo"
 QWEN_API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 
 # 天气配置（高德地图天气 API）
-WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY", "")
+WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY", "REDACTED_WEATHER_API_KEY_2")
 WEATHER_API_URL = "https://restapi.amap.com/v3/weather/weatherInfo"
 # 广州的 adcode
-GUANGZHOU_ADCODE = "440100"
+GUANGZHOU_ADCODE = "340302"
 
 # ==================== 日志功能 ====================
 
@@ -100,9 +100,12 @@ def get_weather():
             "extensions": "base",
             "output": "JSON"
         }
+        log_message(f"正在请求天气API，Key前4位: {WEATHER_API_KEY[:4]}...")
         response = requests.get(WEATHER_API_URL, params=params, timeout=10)
+        log_message(f"天气API响应状态码: {response.status_code}")
         if response.status_code == 200:
             data = response.json()
+            log_message(f"天气API返回数据: {json.dumps(data, ensure_ascii=False)}")
             if data.get("status") == "1" and data.get("lives"):
                 live = data["lives"][0]
                 weather_info = {
@@ -115,7 +118,7 @@ def get_weather():
                 log_message(f"获取天气成功: {weather_info['weather']}, {weather_info['temp']}°C")
                 return weather_info
             else:
-                log_message(f"天气API返回错误: {data}")
+                log_message(f"天气API返回错误: status={data.get('status')}, info={data.get('info', '未知错误')}")
         else:
             log_message(f"天气API请求失败，状态码: {response.status_code}")
     except Exception as e:
@@ -126,20 +129,6 @@ def get_weather():
 
 def generate_greeting(weather_info, hour):
     """根据时间和天气生成AI问好"""
-    if not QWEN_API_KEY:
-        # 无AI时简单生成
-        if 5 <= hour < 12:
-            period = "早上"
-        elif 12 <= hour < 14:
-            period = "中午"
-        elif 14 <= hour < 18:
-            period = "下午"
-        else:
-            period = "晚上"
-        
-        temp = weather_info.get("temp", "未知") if weather_info else "未知"
-        return f"{period}好！现在温度{temp}度，祝你今天愉快！"
-    
     # 构建提示词
     if 5 <= hour < 12:
         period = "早上"
