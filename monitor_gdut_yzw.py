@@ -20,40 +20,26 @@ from bs4 import BeautifulSoup
 
 # ==================== 配置区域 ====================
 
-# 监控配置
 MONITOR_URL = "https://yzw.gdut.edu.cn/sszs.htm"
 DATA_FILE = "monitor_data.json"
-"""
-Name:           SENDER_EMAIL                                                                                                                                                                     █  
-     Secret:         REDACTED_SENDER_EMAIL                                                                                                                           Context                              █  
-                                                                                                                                                                 46,528 tokens                        █  
-     Name:           SENDER_PASSWORD                                                                                                                             18% used                             █  
-     Secret:         REDACTED_QQ_AUTH_CODE                                                                                                                            $0.00 spent                          █  
-                                                                                                                                                                                                      █  
-     Name:           RECEIVER_EMAIL                                                                                                                              LSP                                  █  
-     Secret:         REDACTED_SENDER_EMAIL                                                                                                                           LSPs will activate as files are read █  
-                                                                                                                                                                                                      █  
-     Name:           QWEN_API_KEY                                                                                                                                ▼ Todo                               █  
-     Secret:         REDACTED_QWEN_API_KEY   
-      
-      """
-# QQ邮箱配置（优先从环境变量读取）
+
+# QQ邮箱配置
 SMTP_SERVER = "smtp.qq.com"
 SMTP_PORT = 465
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "REDACTED_SENDER_EMAIL")
-SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD", "REDACTED_QQ_AUTH_CODE   ")
-RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL", "REDACTED_SENDER_EMAIL")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "")
+SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD", "")
+RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL", "")
 
-# AI 配置（通义千问 Qwen）REDACTED_QWEN_API_KEY
-QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "REDACTED_QWEN_API_KEY")
+# AI 配置（通义千问）
+QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "")
 QWEN_MODEL = "qwen-turbo"
 QWEN_API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 
-# 天气配置（高德地图天气 API）
-WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY", "REDACTED_WEATHER_API_KEY_2")
+# 天气配置（高德地图）
+WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY", "")
 WEATHER_API_URL = "https://restapi.amap.com/v3/weather/weatherInfo"
-# 龙子湖区的 adcode
-GUANGZHOU_ADCODE = "340302"
+# 广州城市编码
+CITY_ADCODE = "440100"
 
 # ==================== 日志功能 ====================
 
@@ -88,57 +74,35 @@ def save_data(data):
 # ==================== 天气获取 ====================
 
 def get_weather():
-    """获取广州当前天气（高德地图API）"""
-    if not WEATHER_API_KEY:
-        log_message("未配置天气API Key，跳过天气获取")
-        return None
-
+    """获取当前天气"""
     try:
         params = {
             "key": WEATHER_API_KEY,
-            "city": GUANGZHOU_ADCODE,
+            "city": CITY_ADCODE,
             "extensions": "base",
             "output": "JSON"
         }
-        log_message(f"正在请求高德天气API...")
         response = requests.get(WEATHER_API_URL, params=params, timeout=10)
-        log_message(f"天气API响应状态码: {response.status_code}")
+        data = response.json()
 
-        if response.status_code == 200:
-            data = response.json()
-            log_message(f"天气API返回: {json.dumps(data, ensure_ascii=False)}")
-
-            # 高德API status 为 "1" 表示成功
-            if str(data.get("status")) == "1":
-                lives = data.get("lives", [])
-                if lives:
-                    live = lives[0]
-                    weather_info = {
-                        "temp": live.get("temperature", "未知"),
-                        "weather": live.get("weather", "未知"),
-                        "winddirection": live.get("winddirection", "未知"),
-                        "windpower": live.get("windpower", ""),
-                        "humidity": live.get("humidity", "未知"),
-                        "city": live.get("city", "广州"),
-                        "reporttime": live.get("reporttime", "")
-                    }
-                    log_message(f"获取天气成功: {weather_info['weather']}, {weather_info['temp']}°C")
-                    return weather_info
-                else:
-                    log_message("天气API返回成功但没有lives数据")
-            else:
-                log_message(f"天气API返回错误: status={data.get('status')}, info={data.get('info', '未知错误')}, infocode={data.get('infocode', '无')}")
-        else:
-            log_message(f"天气API请求失败，状态码: {response.status_code}")
+        if str(data.get("status")) == "1" and data.get("lives"):
+            live = data["lives"][0]
+            return {
+                "temp": live.get("temperature", "未知"),
+                "weather": live.get("weather", "未知"),
+                "winddirection": live.get("winddirection", ""),
+                "windpower": live.get("windpower", ""),
+                "humidity": live.get("humidity", ""),
+                "city": live.get("city", "广州")
+            }
     except Exception as e:
-        log_message(f"获取天气异常: {e}")
+        log_message(f"获取天气失败: {e}")
     return None
 
 # ==================== AI 问好生成 ====================
 
 def generate_greeting(weather_info, hour):
     """根据时间和天气生成AI问好"""
-    # 构建提示词
     if 5 <= hour < 12:
         period = "早上"
     elif 12 <= hour < 14:
@@ -147,41 +111,32 @@ def generate_greeting(weather_info, hour):
         period = "下午"
     else:
         period = "晚上"
-    
-    weather_desc = ""
+
     if weather_info:
-        weather_desc = f"当前天气: {weather_info.get('weather', '未知')}, 温度{weather_info.get('temp', '未知')}°C, 湿度{weather_info.get('humidity', '未知')}%, 风向风力: {weather_info.get('wind', '未知')}"
+        weather_desc = f"当前{weather_info['city']}天气: {weather_info['weather']}, 温度{weather_info['temp']}°C, 湿度{weather_info['humidity']}%"
     else:
         weather_desc = "未获取到天气信息"
-    
+
     prompt = f"现在是{period}，{weather_desc}。请用温暖亲切的语气写一句{period}问候语，包含温度和穿衣建议（冷了提醒多穿，热了提醒别中暑），控制在50字以内。只输出问候语本身，不要加任何前缀。"
-    
+
     headers = {
         "Authorization": f"Bearer {QWEN_API_KEY}",
         "Content-Type": "application/json"
     }
-    
+
     payload = {
         "model": QWEN_MODEL,
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
+        "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 100
     }
-    
+
     try:
-        log_message("正在生成AI问候语...")
         response = requests.post(QWEN_API_URL, headers=headers, json=payload, timeout=30)
         if response.status_code == 200:
-            result = response.json()
-            greeting = result["choices"][0]["message"]["content"].strip()
-            log_message(f"AI问候语生成完成: {greeting[:30]}...")
-            return greeting
-        else:
-            log_message(f"AI问候语生成失败: {response.status_code}")
-    except Exception as e:
-        log_message(f"AI问候语生成异常: {e}")
-    
+            return response.json()["choices"][0]["message"]["content"].strip()
+    except Exception:
+        pass
+
     # 失败时返回简单问候
     temp = weather_info.get("temp", "未知") if weather_info else "未知"
     return f"{period}好！现在温度{temp}度，祝你今天愉快！"
@@ -194,28 +149,22 @@ def fetch_page(url):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        "Connection": "keep-alive",
     }
-    
     try:
         response = requests.get(url, headers=headers, timeout=30)
         response.encoding = 'utf-8'
         if response.status_code == 200:
             return response.text
-        else:
-            log_message(f"请求失败，状态码: {response.status_code}")
-            return None
     except Exception as e:
         log_message(f"请求异常: {e}")
-        return None
+    return None
 
 def parse_articles(html):
     """解析网页中的文章列表"""
     soup = BeautifulSoup(html, 'html.parser')
     articles = []
 
-    li_items = soup.find_all('li', class_='no')
-    for li in li_items:
+    for li in soup.find_all('li', class_='no'):
         try:
             a_tag = li.find('a', href=True)
             if not a_tag:
@@ -239,11 +188,9 @@ def parse_articles(html):
                 if p_tag:
                     summary = p_tag.text.strip()
 
-            full_url = urljoin(MONITOR_URL, href)
-
             articles.append({
                 "title": title,
-                "url": full_url,
+                "url": urljoin(MONITOR_URL, href),
                 "date": date_str,
                 "summary": summary[:200] + "..." if len(summary) > 200 else summary
             })
@@ -258,9 +205,7 @@ def calculate_hash(content):
 
 def get_first_article(articles):
     """获取页面排列在最上面的文章"""
-    if not articles:
-        return None
-    return articles[0]
+    return articles[0] if articles else None
 
 def fetch_article_html(url):
     """抓取文章详情页的完整HTML并提取正文"""
@@ -272,16 +217,9 @@ def fetch_article_html(url):
         content_div = soup.find('div', class_='content') or soup.find('div', class_='v_news_content') or soup.find('div', id='content') or soup.find('article')
         if content_div:
             text = content_div.get_text(separator='\n', strip=True)
-            lines = [line.strip() for line in text.splitlines() if line.strip()]
-            return '\n'.join(lines)
-        else:
-            body = soup.find('body')
-            if body:
-                text = body.get_text(separator='\n', strip=True)
-                lines = [line.strip() for line in text.splitlines() if line.strip()]
-                return '\n'.join(lines)
-    except Exception as e:
-        log_message(f'提取文章正文失败: {e}')
+            return '\n'.join([line.strip() for line in text.splitlines() if line.strip()])
+    except Exception:
+        pass
     return None
 
 # ==================== AI 总结 ====================
@@ -290,16 +228,16 @@ def ai_summarize(text):
     """调用通义千问API对文章内容进行总结"""
     if not text or not text.strip():
         return "（文章内容为空，无法总结）"
-    
+
     max_length = 8000
     if len(text) > max_length:
         text = text[:max_length] + "..."
-    
+
     headers = {
         "Authorization": f"Bearer {QWEN_API_KEY}",
         "Content-Type": "application/json"
     }
-    
+
     payload = {
         "model": QWEN_MODEL,
         "messages": [
@@ -313,21 +251,15 @@ def ai_summarize(text):
             }
         ]
     }
-    
+
     try:
-        log_message("正在调用AI总结文章...")
         response = requests.post(QWEN_API_URL, headers=headers, json=payload, timeout=60)
         if response.status_code == 200:
-            result = response.json()
-            summary = result["choices"][0]["message"]["content"]
-            log_message("AI总结完成")
-            return summary
-        else:
-            log_message(f"AI API请求失败，状态码: {response.status_code}")
-            return f"（AI总结失败，原文如下）\n\n{text}"
-    except Exception as e:
-        log_message(f"AI总结异常: {e}")
-        return f"（AI总结异常，原文如下）\n\n{text}"
+            return response.json()["choices"][0]["message"]["content"]
+    except Exception:
+        pass
+
+    return f"（AI总结失败，原文如下）\n\n{text}"
 
 # ==================== 邮件发送 ====================
 
@@ -338,17 +270,15 @@ def send_email(subject, body_text):
         msg['From'] = SENDER_EMAIL
         msg['To'] = RECEIVER_EMAIL
         msg['Subject'] = subject
-        
         msg.attach(MIMEText(body_text, 'plain', 'utf-8'))
-        
+
         server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
         server.send_message(msg)
         server.quit()
-        
+
         log_message("邮件发送成功！")
         return True
-        
     except Exception as e:
         log_message(f"邮件发送失败: {e}")
         return False
@@ -358,44 +288,37 @@ def send_email(subject, body_text):
 def check_updates():
     """检查页面更新并发送邮件"""
     log_message("开始检查页面更新...")
-    
-    # 获取当前时间
+
     now = datetime.now()
     current_hour = now.hour
-    
-    # 获取天气
+
+    # 获取天气和问候语
     weather_info = get_weather()
-    
-    # 生成AI问候语
     greeting = generate_greeting(weather_info, current_hour)
-    
+
     # 加载历史数据
     data = load_data()
-    
-    # 获取当前页面内容
+
+    # 获取页面内容
     html = fetch_page(MONITOR_URL)
     if not html:
-        log_message("获取页面失败，跳过本次检查")
-        # 即使页面获取失败，也发送问候邮件
-        body = f"{greeting}\n\n{'='*40}\n\n（招生网页面获取失败，请稍后查看）"
-        send_email("【招生网监控】每日问候", body)
+        log_message("获取页面失败")
+        send_email("【招生网监控】每日问候", f"{greeting}\n\n{'='*40}\n\n（招生网页面获取失败）")
         return
-    
-    # 解析文章列表
+
+    # 解析文章
     current_articles = parse_articles(html)
     if not current_articles:
-        log_message("未解析到文章列表")
-        body = f"{greeting}\n\n{'='*40}\n\n（未能解析到文章列表）"
-        send_email("【招生网监控】每日问候", body)
+        log_message("未解析到文章")
+        send_email("【招生网监控】每日问候", f"{greeting}\n\n{'='*40}\n\n（未能解析文章列表）")
         return
-    
+
     log_message(f"成功解析到 {len(current_articles)} 篇文章")
-    
-    # 计算当前文章列表的哈希
+
+    # 计算哈希检查更新
     articles_str = json.dumps(current_articles, sort_keys=True, ensure_ascii=False)
     current_hash = calculate_hash(articles_str)
-    
-    # 检查是否有更新
+
     has_update = False
     if data["last_hash"] == "":
         log_message("首次运行，初始化数据...")
@@ -404,31 +327,20 @@ def check_updates():
         has_update = True
     else:
         log_message("页面未更新")
-    
+
     # 获取首条文章
     first_article = get_first_article(current_articles)
-    
+
     if first_article:
-        log_message(f"当前首条文章: {first_article['title']} ({first_article['date']})")
-        
-        # 抓取文章详情页正文
+        log_message(f"当前首条文章: {first_article['title']}")
+
         article_text = fetch_article_html(first_article['url'])
-        
-        # 调用AI总结
-        if article_text:
-            ai_summary = ai_summarize(article_text)
-        else:
-            ai_summary = "（未能提取正文内容）"
-        
-        # 组装邮件正文
+        ai_summary = ai_summarize(article_text) if article_text else "（未能提取正文内容）"
+
+        # 组装邮件
         body = f"{greeting}\n\n"
         body += f"{'='*40}\n"
-        
-        if has_update:
-            body += "🎉 【页面有更新】\n"
-        else:
-            body += "📋 【当前最新文章】\n"
-        
+        body += "🎉 【页面有更新】\n" if has_update else "📋 【当前最新文章】\n"
         body += f"{'='*40}\n"
         body += f"标题: {first_article['title']}\n"
         body += f"日期: {first_article['date']}\n"
@@ -440,18 +352,13 @@ def check_updates():
         body += f"\n{'='*40}\n"
         body += "【原文】\n"
         body += f"{'='*40}\n"
-        if article_text:
-            body += article_text
-        else:
-            body += "（未能提取正文内容）"
-        
+        body += article_text if article_text else "（未能提取正文内容）"
+
         subject = f"【招生网】{first_article['title'][:30]}..."
         send_email(subject, body)
     else:
-        log_message("未获取到首条文章")
-        body = f"{greeting}\n\n{'='*40}\n\n（未获取到文章信息）"
-        send_email("【招生网监控】每日问候", body)
-    
+        send_email("【招生网监控】每日问候", f"{greeting}\n\n{'='*40}\n\n（未获取到文章）")
+
     # 保存数据
     data["last_hash"] = current_hash
     data["articles"] = current_articles
@@ -465,13 +372,11 @@ def main():
     log_message(f"监控页面: {MONITOR_URL}")
     log_message("运行模式: 每日8:00/12:00/17:00定时执行")
     log_message("=" * 50)
-    
-    # 检查配置
+
     if not SENDER_EMAIL or not SENDER_PASSWORD:
         log_message("⚠️ 警告: 邮箱配置不完整！")
         return
-    
-    # 执行检查
+
     check_updates()
 
 if __name__ == "__main__":
