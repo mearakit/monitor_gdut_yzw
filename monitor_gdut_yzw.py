@@ -103,7 +103,7 @@ def generate_greeting(weather_info, hour):
         weather_desc = "未获取到天气信息"
         print("天气获取失败")
 
-    prompt = f"现在是{period}，{weather_desc}。请用温暖亲切的语气写一句{period}问候语，包含具体城市和具体温度和穿衣建议（冷了提醒多穿，热了提醒别中暑），控制在50字以内。只输出问候语本身，不要加任何前缀。"
+    prompt = f"现在是{period}，{weather_desc}。请用温暖亲切的语气写一句{period}问候语，包含具体城市和具体温度和穿衣建议（冷了提醒多穿，热了提醒别中暑）。只输出问候语本身，不要加任何前缀。"
 
     headers = {
         "Authorization": f"Bearer {QWEN_API_KEY}",
@@ -220,7 +220,7 @@ def ai_summarize(text):
         "messages": [
             {
                 "role": "system",
-                "content": "你是一个专业的招生信息分析助手。请用简洁清晰的中文总结以下内容，提取关键信息（如重要时间节点、要求、变动等），控制在300字以内。"
+                "content": "你是一个招生信息助手。请用简洁的中文总结以下内容，提取关键信息（时间、地点、要求等），不要输出任何Markdown格式符号（如*、#、-、|等），只使用纯文本和中文标点。"
             },
             {
                 "role": "user",
@@ -232,7 +232,11 @@ def ai_summarize(text):
     try:
         response = requests.post(QWEN_API_URL, headers=headers, json=payload, timeout=60)
         if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"]
+            summary = response.json()["choices"][0]["message"]["content"]
+            # 清理Markdown格式符号
+            summary = summary.replace('**', '').replace('*', '').replace('#', '').replace('---', '').replace('```', '')
+            summary = summary.replace('|', ' ').replace('>', '')
+            return summary
     except Exception:
         pass
 
@@ -268,9 +272,6 @@ def main():
     log_message("招生网监控脚本启动")
     log_message("=" * 50)
 
-    if not SENDER_EMAIL or not SENDER_PASSWORD:
-        log_message("⚠️ 警告: 邮箱配置不完整！")
-        return
 
     now = datetime.now()
     current_hour = now.hour
@@ -281,17 +282,9 @@ def main():
 
     # 获取招生网页面
     html = fetch_page(MONITOR_URL)
-    if not html:
-        log_message("获取页面失败")
-        send_email("【招生网监控】每日问候", f"{greeting}\n\n{'='*40}\n\n（招生网页面获取失败）")
-        return
 
-    # 解析文章
     articles = parse_articles(html)
-    if not articles:
-        log_message("未解析到文章")
-        send_email("【招生网监控】每日问候", f"{greeting}\n\n{'='*40}\n\n（未能解析文章列表）")
-        return
+
 
     log_message(f"成功解析到 {len(articles)} 篇文章")
 
