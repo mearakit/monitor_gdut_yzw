@@ -3,11 +3,9 @@
 """
 广东工业大学研究生招生网监控脚本
 监控网址: https://yzw.gdut.edu.cn/sszs.htm
-功能: 监控页面更新，结合天气和AI问好，发送邮件通知
+功能: 每天定时发送招生网最新文章+天气问候
 """
 
-import hashlib
-import json
 import os
 import smtplib
 from datetime import datetime
@@ -21,7 +19,6 @@ from bs4 import BeautifulSoup
 # ==================== 配置区域 ====================
 
 MONITOR_URL = "https://yzw.gdut.edu.cn/sszs.htm"
-DATA_FILE = "monitor_data.json"
 
 # QQ邮箱配置
 SMTP_SERVER = "smtp.qq.com"
@@ -38,38 +35,14 @@ QWEN_API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completio
 # 天气配置（高德地图）
 WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY", "")
 WEATHER_API_URL = "https://restapi.amap.com/v3/weather/weatherInfo"
-# 广州城市编码
 CITY_ADCODE = "440100"
 
 # ==================== 日志功能 ====================
 
 def log_message(message):
-    """打印并记录日志"""
+    """打印日志"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_line = f"[{timestamp}] {message}"
-    print(log_line)
-    with open("monitor.log", "a", encoding="utf-8") as f:
-        f.write(log_line + "\n")
-
-# ==================== 数据存储 ====================
-
-def load_data():
-    """加载历史监控数据"""
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            log_message(f"加载数据文件失败: {e}")
-    return {"last_hash": "", "last_check": "", "articles": []}
-
-def save_data(data):
-    """保存监控数据"""
-    try:
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        log_message(f"保存数据文件失败: {e}")
+    print(f"[{timestamp}] {message}")
 
 # ==================== 天气获取 ====================
 
@@ -90,8 +63,6 @@ def get_weather():
             return {
                 "temp": live.get("temperature", "未知"),
                 "weather": live.get("weather", "未知"),
-                "winddirection": live.get("winddirection", ""),
-                "windpower": live.get("windpower", ""),
                 "humidity": live.get("humidity", ""),
                 "city": live.get("city", "广州")
             }
@@ -113,7 +84,7 @@ def generate_greeting(weather_info, hour):
         period = "晚上"
 
     if weather_info:
-        weather_desc = f"当前{weather_info['city']}天气: {weather_info['weather']}, 温度{weather_info['temp']}°C, 湿度{weather_info['humidity']}%"
+        weather_desc = f"当前{weather_info['city']}天气: {weather_info['weather']}, 温度{weather_info['temp']}°C"
     else:
         weather_desc = "未获取到天气信息"
 
@@ -137,7 +108,6 @@ def generate_greeting(weather_info, hour):
     except Exception:
         pass
 
-    # 失败时返回简单问候
     temp = weather_info.get("temp", "未知") if weather_info else "未知"
     return f"{period}好！现在温度{temp}度，祝你今天愉快！"
 
@@ -198,14 +168,6 @@ def parse_articles(html):
             continue
 
     return articles
-
-def calculate_hash(content):
-    """计算内容哈希值"""
-    return hashlib.md5(content.encode('utf-8')).hexdigest()
-
-def get_first_article(articles):
-    """获取页面排列在最上面的文章"""
-    return articles[0] if articles else None
 
 def fetch_article_html(url):
     """抓取文章详情页的完整HTML并提取正文"""
@@ -283,11 +245,17 @@ def send_email(subject, body_text):
         log_message(f"邮件发送失败: {e}")
         return False
 
-# ==================== 主监控逻辑 ====================
+# ==================== 主逻辑 ====================
 
-def check_updates():
-    """检查页面更新并发送邮件"""
-    log_message("开始检查页面更新...")
+def main():
+    """主函数"""
+    log_message("=" * 50)
+    log_message("招生网监控脚本启动")
+    log_message("=" * 50)
+
+    if not SENDER_EMAIL or not SENDER_PASSWORD:
+        log_message("⚠️ 警告: 邮箱配置不完整！")
+        return
 
     now = datetime.now()
     current_hour = now.hour
@@ -296,10 +264,7 @@ def check_updates():
     weather_info = get_weather()
     greeting = generate_greeting(weather_info, current_hour)
 
-    # 加载历史数据
-    data = load_data()
-
-    # 获取页面内容
+    # 获取招生网页面
     html = fetch_page(MONITOR_URL)
     if not html:
         log_message("获取页面失败")
@@ -307,77 +272,41 @@ def check_updates():
         return
 
     # 解析文章
-    current_articles = parse_articles(html)
-    if not current_articles:
+    articles = parse_articles(html)
+    if not articles:
         log_message("未解析到文章")
         send_email("【招生网监控】每日问候", f"{greeting}\n\n{'='*40}\n\n（未能解析文章列表）")
         return
 
-    log_message(f"成功解析到 {len(current_articles)} 篇文章")
+    log_message(f"成功解析到 {len(articles)} 篇文章")
 
-    # 计算哈希检查更新
-    articles_str = json.dumps(current_articles, sort_keys=True, ensure_ascii=False)
-    current_hash = calculate_hash(articles_str)
+    # 获取第一篇文章
+    first = articles[0]
+    log_message(f"当前首条文章: {first['title']}")
 
-    has_update = False
-    if data["last_hash"] == "":
-        log_message("首次运行，初始化数据...")
-    elif data["last_hash"] != current_hash:
-        log_message("检测到页面更新！")
-        has_update = True
-    else:
-        log_message("页面未更新")
+    # 抓取正文并总结
+    article_text = fetch_article_html(first['url'])
+    ai_summary = ai_summarize(article_text) if article_text else "（未能提取正文内容）"
 
-    # 获取首条文章
-    first_article = get_first_article(current_articles)
+    # 组装邮件
+    body = f"{greeting}\n\n"
+    body += f"{'='*40}\n"
+    body += "📋 【今日最新文章】\n"
+    body += f"{'='*40}\n"
+    body += f"标题: {first['title']}\n"
+    body += f"日期: {first['date']}\n"
+    body += f"链接: {first['url']}\n"
+    body += f"{'='*40}\n"
+    body += "【AI总结】\n"
+    body += f"{'='*40}\n"
+    body += ai_summary
+    body += f"\n{'='*40}\n"
+    body += "【原文】\n"
+    body += f"{'='*40}\n"
+    body += article_text if article_text else "（未能提取正文内容）"
 
-    if first_article:
-        log_message(f"当前首条文章: {first_article['title']}")
-
-        article_text = fetch_article_html(first_article['url'])
-        ai_summary = ai_summarize(article_text) if article_text else "（未能提取正文内容）"
-
-        # 组装邮件
-        body = f"{greeting}\n\n"
-        body += f"{'='*40}\n"
-        body += "🎉 【页面有更新】\n" if has_update else "📋 【当前最新文章】\n"
-        body += f"{'='*40}\n"
-        body += f"标题: {first_article['title']}\n"
-        body += f"日期: {first_article['date']}\n"
-        body += f"链接: {first_article['url']}\n"
-        body += f"{'='*40}\n"
-        body += "【AI总结】\n"
-        body += f"{'='*40}\n"
-        body += ai_summary
-        body += f"\n{'='*40}\n"
-        body += "【原文】\n"
-        body += f"{'='*40}\n"
-        body += article_text if article_text else "（未能提取正文内容）"
-
-        subject = f"【招生网】{first_article['title'][:30]}..."
-        send_email(subject, body)
-    else:
-        send_email("【招生网监控】每日问候", f"{greeting}\n\n{'='*40}\n\n（未获取到文章）")
-
-    # 保存数据
-    data["last_hash"] = current_hash
-    data["articles"] = current_articles
-    data["last_check"] = now.isoformat()
-    save_data(data)
-
-def main():
-    """主函数"""
-    log_message("=" * 50)
-    log_message("广东工业大学研究生招生网监控脚本启动")
-    log_message(f"监控页面: {MONITOR_URL}")
-    log_message("运行模式: 每日8:00/12:00/17:00定时执行")
-    log_message("=" * 50)
-
-    if not SENDER_EMAIL or not SENDER_PASSWORD:
-        log_message("⚠️ 警告: 邮箱配置不完整！")
-        return
-
-    check_updates()
+    subject = f"【招生网】{first['title'][:30]}..."
+    send_email(subject, body)
 
 if __name__ == "__main__":
     main()
