@@ -4,6 +4,10 @@
 广东工业大学研究生招生网监控脚本
 监控网址: https://yzw.gdut.edu.cn/sszs.htm
 功能: 每天定时发送招生网最新文章+天气问候
+OAuth: 04-25 10:32:42
+REDACTED_QQ_AUTH_CODE
+REDACTED_QWEN_API_KEY
+REDACTED_WEATHER_API_KEY
 """
 
 import os
@@ -23,19 +27,19 @@ MONITOR_URL = "https://yzw.gdut.edu.cn/sszs.htm"
 # QQ邮箱配置
 SMTP_SERVER = "smtp.qq.com"
 SMTP_PORT = 465
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "")
-SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD", "")
-RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL", "")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "REDACTED_SENDER_EMAIL")
+SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD", "REDACTED_QQ_AUTH_CODE")
+RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL", "REDACTED_SENDER_EMAIL")
 
 # AI 配置（通义千问）
-QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "")
+QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "REDACTED_QWEN_API_KEY")
 QWEN_MODEL = "qwen-turbo"
 QWEN_API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 
 # 天气配置（高德地图）
-WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY", "")
+WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY", "REDACTED_WEATHER_API_KEY")
 WEATHER_API_URL = "https://restapi.amap.com/v3/weather/weatherInfo"
-CITY_ADCODE = "440100"
+CITY_ADCODE = "340302"
 
 # ==================== 日志功能 ====================
 
@@ -48,6 +52,9 @@ def log_message(message):
 
 def get_weather():
     """获取当前天气"""
+    log_message(f"天气API Key: {WEATHER_API_KEY[:10]}..." if WEATHER_API_KEY else "天气API Key为空！")
+    log_message(f"城市代码: {CITY_ADCODE}")
+
     try:
         params = {
             "key": WEATHER_API_KEY,
@@ -55,17 +62,23 @@ def get_weather():
             "extensions": "base",
             "output": "JSON"
         }
+        log_message(f"请求URL: {WEATHER_API_URL}?city={CITY_ADCODE}")
         response = requests.get(WEATHER_API_URL, params=params, timeout=10)
+        log_message(f"响应状态码: {response.status_code}")
         data = response.json()
+        log_message(f"响应数据: {data}")
 
         if str(data.get("status")) == "1" and data.get("lives"):
             live = data["lives"][0]
+            log_message(f"获取天气成功: {live.get('weather')}, {live.get('temperature')}°C")
             return {
                 "temp": live.get("temperature", "未知"),
                 "weather": live.get("weather", "未知"),
                 "humidity": live.get("humidity", ""),
-                "city": live.get("city", "广州")
+                "city": live.get("city", "蚌埠")
             }
+        else:
+            log_message(f"天气API返回错误: status={data.get('status')}, info={data.get('info')}")
     except Exception as e:
         log_message(f"获取天气失败: {e}")
     return None
@@ -85,10 +98,12 @@ def generate_greeting(weather_info, hour):
 
     if weather_info:
         weather_desc = f"当前{weather_info['city']}天气: {weather_info['weather']}, 温度{weather_info['temp']}°C"
+        print(f"天气获取成功，{weather_desc}")
     else:
         weather_desc = "未获取到天气信息"
+        print("天气获取失败")
 
-    prompt = f"现在是{period}，{weather_desc}。请用温暖亲切的语气写一句{period}问候语，包含温度和穿衣建议（冷了提醒多穿，热了提醒别中暑），控制在50字以内。只输出问候语本身，不要加任何前缀。"
+    prompt = f"现在是{period}，{weather_desc}。请用温暖亲切的语气写一句{period}问候语，包含具体城市和具体温度和穿衣建议（冷了提醒多穿，热了提醒别中暑），控制在50字以内。只输出问候语本身，不要加任何前缀。"
 
     headers = {
         "Authorization": f"Bearer {QWEN_API_KEY}",
