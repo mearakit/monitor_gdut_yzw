@@ -27,8 +27,8 @@ MONITOR_URL = "https://yzw.gdut.edu.cn/sszs.htm"
 # QQ邮箱配置
 SMTP_SERVER = "smtp.qq.com"
 SMTP_PORT = 465
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "REDACTED_SENDER_EMAIL")
-SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD", "REDACTED_QQ_AUTH_CODE")
+SENDER_EMAIL = "REDACTED_SENDER_EMAIL"
+SENDER_PASSWORD ="REDACTED_QQ_AUTH_CODE"
 RECEIVER_EMAIL = "REDACTED_RECEIVER_EMAIL"
 
 # AI 配置（通义千问）
@@ -220,7 +220,7 @@ def ai_summarize(text):
         "messages": [
             {
                 "role": "system",
-                "content": "你是一个招生信息助手。请用简洁的中文总结以下内容，提取关键信息（时间、地点、要求等），不要输出任何Markdown格式符号（如*、#、-、|等），只使用纯文本和中文标点。"
+                "content": "你是一个招生信息助手。请用简洁的中文总结以下内容且要有好看的格式，提取关键信息（时间、地点、要求等），不要输出任何Markdown格式符号（如*、#、-、|等），只使用纯文本和中文标点。"
             },
             {
                 "role": "user",
