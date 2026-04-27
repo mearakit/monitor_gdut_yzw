@@ -37,7 +37,7 @@ QWEN_MODEL = "qwen-turbo"
 QWEN_API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 
 # 天气配置（高德地图）
-WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY", "REDACTED_WEATHER_API_KEY")
+WEATHER_API_KEY = "REDACTED_WEATHER_API_KEY"
 WEATHER_API_URL = "https://restapi.amap.com/v3/weather/weatherInfo"
 CITY_ADCODE = "340302"
 
