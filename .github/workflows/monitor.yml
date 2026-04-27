@@ -28,11 +28,5 @@ jobs:
           pip install requests beautifulsoup4
       
       - name: Run monitor script
-        env:
-          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
-          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
-          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
-          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
-          WEATHER_API_KEY: ${{ secrets.WEATHER_API_KEY }}
         run: |
           python monitor_gdut_yzw.py
