@@ -4,14 +4,13 @@
 广东工业大学研究生招生网监控脚本
 监控网址: https://yzw.gdut.edu.cn/sszs.htm
 功能: 每天定时发送招生网最新文章+天气问候
-OAuth: 04-25 10:32:42
-REDACTED_QQ_AUTH_CODE
-REDACTED_QWEN_API_KEY
-REDACTED_WEATHER_API_KEY
 """
 
 import os
 import smtplib
+from dotenv import load_dotenv
+
+load_dotenv()
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -27,17 +26,17 @@ MONITOR_URL = "https://yzw.gdut.edu.cn/sszs.htm"
 # QQ邮箱配置
 SMTP_SERVER = "smtp.qq.com"
 SMTP_PORT = 465
-SENDER_EMAIL = "REDACTED_SENDER_EMAIL"
-SENDER_PASSWORD ="REDACTED_QQ_AUTH_CODE"
-RECEIVER_EMAIL = "REDACTED_RECEIVER_EMAIL"
+SENDER_EMAIL = os.environ["SENDER_EMAIL"]
+SENDER_PASSWORD = os.environ["SENDER_PASSWORD"]
+RECEIVER_EMAIL = os.environ["RECEIVER_EMAIL"]
 
 # AI 配置（通义千问）
-QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "REDACTED_QWEN_API_KEY")
+QWEN_API_KEY = os.environ["QWEN_API_KEY"]
 QWEN_MODEL = "qwen-turbo"
 QWEN_API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 
 # 天气配置（高德地图）
-WEATHER_API_KEY = "REDACTED_WEATHER_API_KEY"
+WEATHER_API_KEY = os.environ["WEATHER_API_KEY"]
 WEATHER_API_URL = "https://restapi.amap.com/v3/weather/weatherInfo"
 CITY_ADCODE = "340302"
 
@@ -52,7 +51,7 @@ def log_message(message):
 
 def get_weather():
     """获取当前天气"""
-    log_message(f"天气API Key: {WEATHER_API_KEY[:10]}..." if WEATHER_API_KEY else "天气API Key为空！")
+    log_message("天气API Key 已配置" if WEATHER_API_KEY else "天气API Key为空！")
     log_message(f"城市代码: {CITY_ADCODE}")
 
     try:
